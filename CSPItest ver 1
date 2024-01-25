@@ -1,0 +1,77 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var Heuvelrug = ee.FeatureCollection("projects/ee-itobonifacius/assets/Nationaal_Park_Utrechtse_Heuvelrug"),
+    USP = ee.FeatureCollection("projects/ee-itobonifacius/assets/USP"),
+    ACD = ee.ImageCollection("NASA/ORNL/biomass_carbon_density/v1"),
+    GPPMODIS = ee.ImageCollection("MODIS/061/MOD17A2H"),
+    geometry = /* color: #d63000 */ee.Geometry.MultiPoint();
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Merging areas of interest into a geometry
+var mergedFeatureCollection = USP.merge(Heuvelrug);
+var mergedGeometry = mergedFeatureCollection.geometry();
+
+//Clipping function
+function clippedGeometry(collection, geometry) {
+  return collection.map(function(image) {
+    return image.clip(geometry);
+  });
+}
+
+//Area function
+function Area(feature) {
+  var AreaHa = geometry.area().divide(10000);
+  return AreaHa;
+}
+
+//*ACD*
+var ACDvis = {
+  bands: ['agb'],
+  min: -50.0,
+  max: 80.0,
+  palette: ['d9f0a3', 'addd8e', '78c679', '41ab5d', '238443', '005a32']
+};
+var clippedACD = clippedGeometry(ACD, mergedGeometry);
+
+var meanACD = ACD.select('agb').mean().reduceRegion({
+  reducer: ee.Reducer.mean(),
+  geometry: mergedGeometry,
+  scale: 500,
+  maxPixels: 1e9
+});
+var ACDvalue = ee.Number(meanACD.get('agb')).multiply(0.1);
+
+//Forest Cover*
+
+//*GPP MODIS*
+var GPPdata = GPPMODIS
+                  .filter(ee.Filter.date('2022-01-01', '2022-09-01'));
+
+var gpp = GPPdata.select('Gpp');
+var GPPvis = {
+  min: 0,
+  max: 600,
+  palette: ['bbe029', '0a9501', '074b03'],
+};
+
+var clippedGPP = clippedGeometry(gpp, mergedGeometry);
+
+var meanGPP = GPPdata.select('Gpp').mean().reduceRegion({
+  reducer: ee.Reducer.mean(),
+  geometry: mergedGeometry,
+  scale: 500,
+  maxPixels: 1e9
+});
+var GPPvalue = ee.Number(meanGPP.get('Gpp'));
+
+// adding to map layer
+Map.centerObject(mergedGeometry)
+
+Map.addLayer(clippedACD, ACDvis, 'ACD');
+Map.addLayer(clippedGPP, GPPvis, 'GPP by MODIS');
+
+// CSPI
+var FC = 0.93;
+print('GPP:',GPPvalue,'kgC/m^2');
+print('ACD',ACDvalue,'kgC/m^2');
+var CSPI = GPPvalue.divide(ACDvalue).multiply((ee.Number(1)).subtract(FC)); //GPP * ACD^-1 *(1-FC)
+
+print(CSPI)
